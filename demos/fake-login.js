@@ -24,4 +24,5 @@ setTimeout(() => {
       </form>
     </div>
   `;
+  history.pushState(null, '', '/');
 }, 1000);
